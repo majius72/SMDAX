@@ -56,7 +56,10 @@ def fetch_dax_history():
         ("2020-06-22", ["Deutsche Lufthansa"], ["Deutsche Wohnen SE"]),
         ("2020-08-24", ["Wirecard AG"], ["Delivery Hero SE"]),
         ("2021-03-22", ["Beiersdorf"], ["Siemens Energy AG"]),
-        ("2021-09-20", [], ["Airbus SE", "Brenntag SE", "Qiagen NV", "Porsche Automobile Holding", "Sartorius AG VZ", "Symrise AG", "Zalando SE"]),
+        
+        # --- KORREKTUR: Alle 10 Aufsteiger der DAX 40 Erweiterung eingefügt ---
+        ("2021-09-20", [], ["Airbus SE", "Brenntag SE", "HelloFresh SE", "Porsche Automobile Holding", "Puma SE", "Qiagen NV", "Sartorius AG VZ", "Siemens Healthineers AG", "Symrise AG", "Zalando SE"]),
+        
         ("2021-10-29", ["Deutsche Wohnen SE"], ["Beiersdorf"]),
         ("2022-03-21", ["Beiersdorf", "Siemens Energy AG"], ["Daimler Truck Holding", "Hannover Rückversicherung"]),
         ("2022-06-20", ["Delivery Hero SE"], ["Beiersdorf"]),
@@ -64,8 +67,6 @@ def fetch_dax_history():
         ("2022-12-19", ["Puma SE"], ["Porsche AG"]),
         ("2023-02-27", ["Linde"], ["Commerzbank"]),
         ("2023-03-20", ["Fresenius Medical Care"], ["Rheinmetall AG"]),
-        
-        # --- HISTORISCH KORREKTE TRENNUNG 2024 / 2025 ---
         ("2024-12-27", ["Covestro AG"], ["Fresenius Medical Care"]),
         ("2025-09-22", ["Porsche AG", "Sartorius AG VZ"], ["GEA Group", "Scout24"])
     ]
@@ -242,7 +243,7 @@ if selected_co:
 
 st.divider()
 
-# --- 7. BEREICH 4: STATISTISCHE EVIDENZ (NEU) ---
+# --- 7. BEREICH 4: STATISTISCHE EVIDENZ (VORLAUF-DRAG) ---
 st.subheader("4. Statistische Evidenz: Der Vorlauf-Drag (Pre-Swap Analysis)")
 st.markdown("Diese Analyse prüft die Kernhypothese mathematisch: **Kostet die reaktive Natur des Index Rendite?** Wir betrachten exakt das **Jahr vor dem Indexwechsel** (T-365 Tage bis zum Wechseltag). Wir vergleichen, wie stark der Absteiger das Index-Portfolio in dieser Zeit belastet hat, während der Aufsteiger außerhalb des Index rasant gewachsen ist.")
 
@@ -253,7 +254,6 @@ if valide_paere:
             
             for p in valide_paere:
                 wechsel_datum = datetime.strptime(p['datum'], '%Y-%m-%d')
-                # 1 Jahr vor dem Rauswurf
                 start_datum = wechsel_datum - pd.DateOffset(years=1)
                 
                 ticker_a = df[df['Unternehmen'] == p['alt']]['Ticker'].values[0]
@@ -271,7 +271,6 @@ if valide_paere:
                         perf_n = ((end_n - start_n) / start_n) * 100
                         delta = perf_n - perf_a
                         
-                        # Plausibilitätsfilter: Schließt offensichtliche Yahoo-Datenfehler (z.B. >500% in einem Jahr durch unbereinigte Splits) aus
                         if abs(delta) < 500:
                             results.append({
                                 "Paar": f"{p['alt']} ➡️ {p['neu']} ({wechsel_datum.year})",
@@ -286,7 +285,6 @@ if valide_paere:
             if results:
                 res_df = pd.DataFrame(results)
                 
-                # --- METRIKEN BERECHNEN ---
                 hit_rate = (len(res_df[res_df['Delta'] > 0]) / len(res_df)) * 100
                 avg_delta = res_df['Delta'].mean()
                 median_delta = res_df['Delta'].median()
@@ -297,7 +295,6 @@ if valide_paere:
                 col_m2.metric("Ø Verpasste Rendite (Mean)", f"+ {avg_delta:.1f} %", "Durchschnittliches Delta")
                 col_m3.metric("Median Verpasste Rendite", f"+ {median_delta:.1f} %", "Robuste Schätzung")
                 
-                # --- VISUALISIERUNG ---
                 res_df = res_df.sort_values('Delta', ascending=True)
                 fig_bar = px.bar(
                     res_df, 
@@ -316,10 +313,13 @@ if valide_paere:
                 )
                 st.plotly_chart(fig_bar, use_container_width=True)
                 
-                st.info("**Interpretation:** Grüne Balken bedeuten: Der Aufsteiger hat den Absteiger im Jahr **bevor** der DAX reagiert hat, massiv geschlagen. Ein passiver DAX-Anleger musste die Verluste des Absteigers voll mitnehmen, während die Gewinne des Aufsteigers nicht im Index abgebildet wurden. Das quantifiziert den strukturellen Performance-Drag durch die passive, verspätete Index-Replikation.")
+                st.info("**Interpretation:** Grüne Balken bedeuten: Der Aufsteiger hat den Absteiger im Jahr **bevor** der DAX reagiert hat, massiv geschlagen. Ein passiver DAX-Anleger musste die Verluste des Absteigers voll mitnehmen, während die Gewinne des Aufsteigers nicht im Index abgebildet wurden.")
             else:
                 st.warning("Nicht genug validierte Daten für diese Berechnung gefunden.")
-# --- 7. EXPORT ---
+
+st.divider()
+
+# --- 8. EXPORT ---
 st.subheader("5. Datenextraktion & CSV-Export")
 display_df = df.copy()
 display_df = display_df.drop(columns=['Slot_ID', 'Primary_Slot', 'Hover_Aufnahme', 'Hover_Abstieg'], errors='ignore')
