@@ -64,8 +64,10 @@ def fetch_dax_history():
         ("2022-12-19", ["Puma SE"], ["Porsche AG"]),
         ("2023-02-27", ["Linde"], ["Commerzbank"]),
         ("2023-03-20", ["Fresenius Medical Care"], ["Rheinmetall AG"]),
-        # HIER IST DEIN KORREKTER BLOCK ZURÜCK:
-        ("2024-12-27", ["Covestro AG", "Sartorius AG VZ", "Porsche AG"], ["Fresenius Medical Care", "GEA Group", "Scout24"])
+        
+        # --- HISTORISCH KORREKTE TRENNUNG 2024 / 2025 ---
+        ("2024-12-27", ["Covestro AG"], ["Fresenius Medical Care"]),
+        ("2025-09-22", ["Porsche AG", "Sartorius AG VZ"], ["GEA Group", "Scout24"])
     ]
 
     active_companies = {co: "1987-12-30" for co in initial_dax}
