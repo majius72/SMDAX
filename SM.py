@@ -243,25 +243,27 @@ if selected_co:
 st.divider()
 
 # --- 7. BEREICH 4: STATISTISCHE EVIDENZ (NEU) ---
-st.subheader("4. Statistische Evidenz: Der aggregierte Substitutions-Drag")
-st.markdown("Diese Analyse prüft die Kernhypothese mathematisch: **Kostet die träge, reaktive Natur des Index den Anleger systematisch Rendite?** Dazu wird für alle historisch verfügbaren Indexwechsel die 'Rendite-Schere' (Outperformance des Aufsteigers gegenüber dem Absteiger seit dem Wechseltag) berechnet.")
+st.subheader("4. Statistische Evidenz: Der Vorlauf-Drag (Pre-Swap Analysis)")
+st.markdown("Diese Analyse prüft die Kernhypothese mathematisch: **Kostet die reaktive Natur des Index Rendite?** Wir betrachten exakt das **Jahr vor dem Indexwechsel** (T-365 Tage bis zum Wechseltag). Wir vergleichen, wie stark der Absteiger das Index-Portfolio in dieser Zeit belastet hat, während der Aufsteiger außerhalb des Index rasant gewachsen ist.")
 
 if valide_paere:
-    if st.button("🧮 Signifikanz-Analyse über alle Wechsel berechnen (Dauert ca. 10-15 Sekunden)"):
-        with st.spinner("Berechne historische Rendite-Deltas über alle verfügbaren Substitutions-Ketten..."):
+    if st.button("🧮 Opportunitätskosten für das Jahr vor dem Wechsel berechnen"):
+        with st.spinner("Berechne historische Rendite-Deltas (12 Monate vor Index-Austritt)..."):
             results = []
             
             for p in valide_paere:
-                wechsel_datum = p['datum']
+                wechsel_datum = datetime.strptime(p['datum'], '%Y-%m-%d')
+                # 1 Jahr vor dem Rauswurf
+                start_datum = wechsel_datum - pd.DateOffset(years=1)
+                
                 ticker_a = df[df['Unternehmen'] == p['alt']]['Ticker'].values[0]
                 ticker_n = df[df['Unternehmen'] == p['neu']]['Ticker'].values[0]
                 
                 try:
-                    # Wir ziehen nur Start- und Endkurs, um Traffic zu sparen und extrem schnell zu sein
-                    data_a = yf.Ticker(ticker_a).history(start=wechsel_datum, end=datetime.today().strftime('%Y-%m-%d'))
-                    data_n = yf.Ticker(ticker_n).history(start=wechsel_datum, end=datetime.today().strftime('%Y-%m-%d'))
+                    data_a = yf.Ticker(ticker_a).history(start=start_datum.strftime('%Y-%m-%d'), end=wechsel_datum.strftime('%Y-%m-%d'))
+                    data_n = yf.Ticker(ticker_n).history(start=start_datum.strftime('%Y-%m-%d'), end=wechsel_datum.strftime('%Y-%m-%d'))
                     
-                    if not data_a.empty and not data_n.empty and len(data_a) > 10 and len(data_n) > 10:
+                    if not data_a.empty and not data_n.empty and len(data_a) > 50 and len(data_n) > 50:
                         start_a, end_a = data_a['Close'].iloc[0], data_a['Close'].iloc[-1]
                         start_n, end_n = data_n['Close'].iloc[0], data_n['Close'].iloc[-1]
                         
@@ -269,14 +271,17 @@ if valide_paere:
                         perf_n = ((end_n - start_n) / start_n) * 100
                         delta = perf_n - perf_a
                         
-                        results.append({
-                            "Paar": f"{p['alt']} ➡️ {p['neu']}",
-                            "Jahr": wechsel_datum[:4],
-                            "Delta": delta,
-                            "Sieger": "Aufsteiger" if delta > 0 else "Absteiger"
-                        })
+                        # Plausibilitätsfilter: Schließt offensichtliche Yahoo-Datenfehler (z.B. >500% in einem Jahr durch unbereinigte Splits) aus
+                        if abs(delta) < 500:
+                            results.append({
+                                "Paar": f"{p['alt']} ➡️ {p['neu']} ({wechsel_datum.year})",
+                                "Delta": delta,
+                                "Sieger": "Aufsteiger im Vorfeld besser" if delta > 0 else "Absteiger im Vorfeld besser",
+                                "Aufsteiger_Perf": perf_n,
+                                "Absteiger_Perf": perf_a
+                            })
                 except Exception:
-                    continue # Überspringen, falls Yahoo für ein spezifisches altes Pärchen hakt
+                    continue 
             
             if results:
                 res_df = pd.DataFrame(results)
@@ -286,11 +291,11 @@ if valide_paere:
                 avg_delta = res_df['Delta'].mean()
                 median_delta = res_df['Delta'].median()
                 
-                st.markdown("### 📊 Ergebnisse der Gesamt-Stichprobe")
+                st.markdown("### 📊 Opportunitätskosten (12 Monate vor dem Rauswurf)")
                 col_m1, col_m2, col_m3 = st.columns(3)
-                col_m1.metric("Aufsteiger Hit-Rate", f"{hit_rate:.1f} %", "Schlagen den alten Konzern")
-                col_m2.metric("Ø Opportunitätskosten (Mean)", f"+ {avg_delta:.1f} %", "Durchschnittliche Rendite-Schere")
-                col_m3.metric("Median Opportunitätskosten", f"+ {median_delta:.1f} %", "Robuste Rendite-Schere")
+                col_m1.metric("Aufsteiger Outperformance-Quote", f"{hit_rate:.1f} %", "Fälle mit positiver Rendite-Schere")
+                col_m2.metric("Ø Verpasste Rendite (Mean)", f"+ {avg_delta:.1f} %", "Durchschnittliches Delta")
+                col_m3.metric("Median Verpasste Rendite", f"+ {median_delta:.1f} %", "Robuste Schätzung")
                 
                 # --- VISUALISIERUNG ---
                 res_df = res_df.sort_values('Delta', ascending=True)
@@ -300,16 +305,20 @@ if valide_paere:
                     y="Paar", 
                     orientation='h',
                     color="Sieger",
-                    color_discrete_map={"Aufsteiger": "#2ca02c", "Absteiger": "#d62728"},
-                    title="Opportunitätskosten pro Wechsel (Rendite Aufsteiger minus Absteiger in %)",
-                    height=max(400, len(res_df)*30)
+                    color_discrete_map={"Aufsteiger im Vorfeld besser": "#2ca02c", "Absteiger im Vorfeld besser": "#d62728"},
+                    title="Verpasste Rendite pro Wechsel (Aufsteiger minus Absteiger im Vorjahr)",
+                    height=max(400, len(res_df)*35),
+                    custom_data=["Aufsteiger_Perf", "Absteiger_Perf"]
                 )
                 fig_bar.update_layout(xaxis_title="Performance-Delta in Prozentpunkten", yaxis_title="")
+                fig_bar.update_traces(
+                    hovertemplate="<b>%{y}</b><br>Delta: %{x:.1f} Prozentpunkte<br>Performance Aufsteiger (außerhalb DAX): %{customdata[0]:.1f}%<br>Performance Absteiger (im DAX gehalten): %{customdata[1]:.1f}%<extra></extra>"
+                )
                 st.plotly_chart(fig_bar, use_container_width=True)
                 
-                st.info("**Interpretation:** Jeder grüne Balken repräsentiert einen historischen Fall, bei dem der Index durch das zu lange Festhalten am Absteiger Rendite verschenkt hat. Je massiver der grüne Bereich, desto klarer ist der Nachweis des strukturellen Performance-Drags durch passive Replikation.")
+                st.info("**Interpretation:** Grüne Balken bedeuten: Der Aufsteiger hat den Absteiger im Jahr **bevor** der DAX reagiert hat, massiv geschlagen. Ein passiver DAX-Anleger musste die Verluste des Absteigers voll mitnehmen, während die Gewinne des Aufsteigers nicht im Index abgebildet wurden. Das quantifiziert den strukturellen Performance-Drag durch die passive, verspätete Index-Replikation.")
             else:
-                st.warning("Nicht genug historische Daten für eine aggregierte Auswertung gefunden.")
+                st.warning("Nicht genug validierte Daten für diese Berechnung gefunden.")
 # --- 7. EXPORT ---
 st.subheader("5. Datenextraktion & CSV-Export")
 display_df = df.copy()
