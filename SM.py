@@ -8,7 +8,7 @@ from datetime import datetime
 # --- 1. SEITEN-KONFIGURATION ---
 st.set_page_config(page_title="DAX Structural Analysis", page_icon="📊", layout="wide")
 
-# --- 2. DATENGRUNDLAGE & KORREKTES HISTORISCHES MAPPING ---
+# --- 2. DATENGRUNDLAGE & "STAMMBAUM"-LOGIK ---
 @st.cache_data
 def load_and_process_data():
     initial_dax = [
@@ -20,7 +20,6 @@ def load_and_process_data():
         "Nixdorf", "RWE", "Schering", "Siemens", "Thyssen", "Veba", "Viag", "Volkswagen"
     ]
 
-    # Lückenlose Rekonstruktion inkl. der großen DAX-40-Erweiterung (Sep 2021)
     changes = [
         ("1990-09-03", ["Feldmühle Nobel", "Nixdorf"], ["Metallgesellschaft", "Preussag"]),
         ("1995-09-18", ["Deutsche Babcock"], ["SAP"]),
@@ -57,7 +56,6 @@ def load_and_process_data():
         ("2020-06-22", ["Deutsche Lufthansa"], ["Deutsche Wohnen SE"]),
         ("2020-08-24", ["Wirecard AG"], ["Delivery Hero SE"]),
         ("2021-03-22", ["Beiersdorf"], ["Siemens Energy AG"]),
-        # --- DIE DAX 40 ERWEITERUNG (Tatsächliche historische Aufnahmen) ---
         ("2021-09-20", [], ["Airbus SE", "Brenntag SE", "Qiagen NV", "Porsche Automobile Holding", "Sartorius AG VZ", "Symrise AG", "Zalando SE"]),
         ("2021-10-29", ["Deutsche Wohnen SE"], ["Beiersdorf"]),
         ("2022-03-21", ["Beiersdorf", "Siemens Energy AG"], ["Daimler Truck Holding", "Hannover Rückversicherung"]),
@@ -70,10 +68,17 @@ def load_and_process_data():
     ]
 
     active_companies = {co: "1987-12-30" for co in initial_dax}
+    
+    # ---------------------------------------------------------
+    # NEU: Die Slot-Logik für die Kaskaden-Bildung
+    # ---------------------------------------------------------
+    current_slots = {co: i for i, co in enumerate(initial_dax, 1)}
+    next_new_slot = 31 # Für die Aufstockung auf 40 Mitglieder
     history = []
     succession_list = []
 
     for date, outs, ins in changes:
+        # 1. Labels für Dropdowns generieren
         for i, out_co in enumerate(outs):
             replacer = ins[i] if i < len(ins) else "Index-Restrukturierung"
             succession_list.append({
@@ -81,30 +86,49 @@ def load_and_process_data():
                 "label": f"{out_co} ➡️ {replacer} ({datetime.strptime(date, '%Y-%m-%d').strftime('%d.%m.%Y')})"
             })
             
-        for out_co in outs:
+        # 2. Absteiger verarbeiten & Slot an Nachfolger vererben
+        for i, out_co in enumerate(outs):
             if out_co in active_companies:
                 start_date = active_companies.pop(out_co)
+                slot_id = current_slots.pop(out_co, next_new_slot)
                 nachfolger_name = next((x['neu'] for x in succession_list if x['alt'] == out_co and x['datum'] == date), "Keiner")
+                
                 history.append({
                     "Unternehmen": out_co, "Aufnahme": start_date, "Abstieg": date, 
-                    "Status": "Ex-Konstituent", "Ersetzt_durch": nachfolger_name
+                    "Status": "Ex-Konstituent", "Ersetzt_durch": nachfolger_name,
+                    "Slot_ID": slot_id # Der DNA-Strang der Substitution
                 })
-        for in_co in ins:
+                
+                # Der direkte Nachfolger erbt die Linie (die Zeile im Chart)
+                if i < len(ins):
+                    in_co = ins[i]
+                    current_slots[in_co] = slot_id
+                    active_companies[in_co] = date
+                    
+        # 3. Neue Index-Mitglieder (z.B. DAX 40 Aufstockung), die niemanden ersetzen
+        for i, in_co in enumerate(ins):
             if in_co not in active_companies:
                 active_companies[in_co] = date
+                current_slots[in_co] = next_new_slot
+                next_new_slot += 1
 
+    # Alle noch aktiven Firmen abschließen
     today_str = datetime.today().strftime('%Y-%m-%d')
     for co, start_date in active_companies.items():
+        slot_id = current_slots.get(co, 99)
         history.append({
             "Unternehmen": co, "Aufnahme": start_date, "Abstieg": today_str, 
-            "Status": "Aktueller Konstituent", "Ersetzt_durch": "N/A"
+            "Status": "Aktueller Konstituent", "Ersetzt_durch": "N/A",
+            "Slot_ID": slot_id
         })
 
     df = pd.DataFrame(history)
     df['Aufnahme'] = pd.to_datetime(df['Aufnahme'])
     df['Abstieg'] = pd.to_datetime(df['Abstieg'])
     
-    # Vollständiges Ticker-Mapping für lückenlose DAX-40-Abdeckung
+    # NEU: Einzigartige Y-Achsen-Namen, damit Plotly Wiederaufsteiger in eine neue Zeile packt
+    df['Chart_Name'] = df['Unternehmen'] + " (ab " + df['Aufnahme'].dt.year.astype(str) + ")"
+    
     ticker_map = {
         "Adidas-Salomon": "ADS.DE", "adidas-Salomon": "ADS.DE", "Airbus SE": "AIR.DE", "Allianz": "ALV.DE", 
         "BASF": "BAS.DE", "Bayer": "BAYN.DE", "Beiersdorf": "BEI.DE", "BMW": "BMW.DE", "Brenntag SE": "BNR.DE", 
@@ -123,8 +147,9 @@ def load_and_process_data():
     }
     df['Ticker'] = df['Unternehmen'].map(ticker_map)
 
-    # Sortierung fixieren: Chronologisch nach Aufnahme für logische Substitutionsketten im Chart
-    df = df.sort_values(by="Aufnahme", ascending=True).reset_index(drop=True)
+    # Sortierung streng nach Substitutionskette (Slot_ID) und dann nach Datum
+    df = df.sort_values(by=["Slot_ID", "Aufnahme"], ascending=[True, True]).reset_index(drop=True)
+
     return df, succession_list
 
 df, succession_list = load_and_process_data()
@@ -141,24 +166,28 @@ c2.metric("Aktuelle Index-Mitglieder", f"{aktuelle_mitglieder} (DAX 40)")
 c3.metric("Struktureller Drag-Faktor", "Nachweisbar negativ")
 st.divider()
 
-# --- 4. BEREICH 1: INDEX-KONSTITUTION (STRIKT CHRONOLOGISCH) ---
-st.subheader("1. Index-Konstitution & Fluktuation (Chronologische Substitutions-Ketten)")
-st.markdown("Visualisierung der Index-Verweildauer geordnet nach historischem Eintritt.")
+# --- 4. BEREICH 1: INDEX-KONSTITUTION (KASKADIERT) ---
+st.subheader("1. Index-Konstitution & Fluktuation (Substitutions-Ketten)")
+st.markdown("Visuelle Darstellung der Index-Verweildauer. Die Chart ist nach **historischen Eintritts-Slots (Stammbäumen)** sortiert, um direkte Substitutionen als treppenförmige Kaskaden sichtbar zu machen.")
+
+# Liste der Namen in exakt der kaskadierten Reihenfolge extrahieren
+ordered_labels = df['Chart_Name'].unique().tolist()
 
 fig_timeline = px.timeline(
     df, 
     x_start="Aufnahme", 
     x_end="Abstieg", 
-    y="Unternehmen", 
+    y="Chart_Name",  # Nutzt den Namen inkl. Jahreszahl für saubere Zeilentrennung
     color="Status",
-    custom_data=["Ersetzt_durch", "Status"], 
+    custom_data=["Unternehmen", "Ersetzt_durch", "Status"], 
     color_discrete_map={"Aktueller Konstituent": "#1f77b4", "Ex-Konstituent": "#d62728"},
-    height=1400 
+    height=1600 
 )
-# Fixiert die Sortierung auf die chronologische Reihenfolge unseres Dataframes
-fig_timeline.update_yaxes(categoryorder="array", categoryarray=df['Unternehmen'])
+
+# Zwingt Plotly, unsere Stammbaum-Reihenfolge von oben nach unten beizubehalten
+fig_timeline.update_yaxes(categoryorder="array", categoryarray=ordered_labels, autorange="reversed", title="Index-Konstituent")
 fig_timeline.update_traces(
-    hovertemplate="<br><b>%{y}</b><br>Aufnahme: %{x|%d.%m.%Y}<br>Status: %{customdata[1]}<br><b>Substitution durch: %{customdata[0]}</b><extra></extra>"
+    hovertemplate="<br><b>%{customdata[0]}</b><br>Aufnahme: %{x|%d.%m.%Y}<br>Status: %{customdata[2]}<br><b>Substitution durch: %{customdata[1]}</b><extra></extra>"
 )
 st.plotly_chart(fig_timeline, width="stretch")
 st.divider()
@@ -201,7 +230,7 @@ if valide_paere:
 
 st.divider()
 
-# --- 6. BEREICH 3: ZEITREIHEN-ANALYSE (VOLLSTÄNDIGE HISTORIE) ---
+# --- 6. BEREICH 3: ZEITREIHEN-ANALYSE ---
 st.subheader("3. Historische Zeitreihenanalyse")
 selected_co = st.selectbox("Konstituent auswählen:", sorted(df[df['Ticker'].notna()]['Unternehmen'].unique()))
 if selected_co:
@@ -215,6 +244,8 @@ st.divider()
 # --- 7. EXPORT ---
 st.subheader("4. Datenextraktion & CSV-Export")
 display_df = df.copy()
+# Exportbereinigung (Entfernen der Hilfsspalten für das Chart)
+display_df = display_df.drop(columns=['Slot_ID', 'Chart_Name'])
 display_df['Abstieg'] = display_df.apply(lambda row: "Aktuell im Index" if row['Status'] == 'Aktueller Konstituent' else row['Abstieg'].strftime('%d.%m.%Y'), axis=1)
 display_df['Aufnahme'] = display_df['Aufnahme'].dt.strftime('%d.%m.%Y')
 st.dataframe(display_df, width="stretch")
