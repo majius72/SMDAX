@@ -9,7 +9,6 @@ from datetime import datetime
 st.set_page_config(page_title="DAX Structural Analysis", page_icon="📊", layout="wide")
 
 # --- 2. DATENGRUNDLAGE & HYBRID-LOGIK ---
-# Neuer Name, um den Streamlit-Cache zu zwingen, sich zurückzusetzen!
 @st.cache_data
 def fetch_dax_history():
     initial_dax = [
@@ -65,8 +64,8 @@ def fetch_dax_history():
         ("2022-12-19", ["Puma SE"], ["Porsche AG"]),
         ("2023-02-27", ["Linde"], ["Commerzbank"]),
         ("2023-03-20", ["Fresenius Medical Care"], ["Rheinmetall AG"]),
-        ("2024-03-18", ["Covestro AG"], ["Fresenius Medical Care"]), 
-        ("2025-09-22", ["Porsche AG", "Sartorius AG VZ"], ["GEA Group", "Scout24"])
+        # HIER IST DEIN KORREKTER BLOCK ZURÜCK:
+        ("2024-12-27", ["Covestro AG", "Sartorius AG VZ", "Porsche AG"], ["Fresenius Medical Care", "GEA Group", "Scout24"])
     ]
 
     active_companies = {co: "1987-12-30" for co in initial_dax}
@@ -181,7 +180,6 @@ fig_timeline.update_yaxes(categoryorder="array", categoryarray=ordered_companies
 fig_timeline.update_traces(
     hovertemplate="<b>%{y}</b><br><br>Zeitraum: %{customdata[2]} – %{customdata[3]}<br>Status: %{customdata[1]}<br>Substitution durch: %{customdata[0]}<extra></extra>"
 )
-# Container-Breite gefixt für absolute Stabilität
 st.plotly_chart(fig_timeline, use_container_width=True)
 st.divider()
 
@@ -192,7 +190,6 @@ valide_paere = [p for p in succession_list if p['alt'] in ticker_vorhanden and p
 pair_options = {p['label']: p for p in valide_paere}
 
 if valide_paere:
-    # index=None verhindert, dass Yahoo Finance direkt beim Start losschießt und die App einfriert!
     selected_pair_label = st.selectbox("Index-Restrukturierung auswählen:", list(pair_options.keys()), index=None, placeholder="Bitte ein Wechsel-Szenario wählen...")
     if selected_pair_label:
         pair = pair_options[selected_pair_label]
@@ -231,7 +228,6 @@ st.divider()
 
 # --- 6. BEREICH 3: ZEITREIHEN-ANALYSE ---
 st.subheader("3. Historische Zeitreihenanalyse")
-# Auch hier index=None, um den App-Start abzusichern
 selected_co = st.selectbox("Konstituent auswählen:", sorted(df[df['Ticker'].notna()]['Unternehmen'].unique()), index=None, placeholder="Unternehmen wählen...")
 if selected_co:
     ticker_co = df[df['Unternehmen'] == selected_co]['Ticker'].values[0]
