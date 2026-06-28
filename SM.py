@@ -139,43 +139,4 @@ def load_and_process_data():
     first_slots = df.groupby('Unternehmen')['Slot_ID'].min()
     df['Primary_Slot'] = df['Unternehmen'].map(first_slots)
     
-    sort_order = df.groupby('Unternehmen').agg({'Primary_Slot': 'min', 'Aufnahme': 'min'}).sort_values(by=['Primary_Slot', 'Aufnahme'])
-    ordered_companies = sort_order.index.tolist()
-
-    return df, succession_list, ordered_companies
-
-df, succession_list, ordered_companies = load_and_process_data()
-
-# --- 3. HEADER & KPIs ---
-st.title("📊 DAX Struktur-Analyse")
-st.markdown("**Quantitative Evaluation der DAX-Zusammensetzung (1988–YTD).** Analyse von Substitutions-Effekten und Evaluation des strukturellen Performance-Drags durch passive Index-Replikation.")
-
-total_absteiger = len(df[df['Status'] == 'Ex-Konstituent'])
-aktuelle_mitglieder = len(df[df['Status'] == 'Aktueller Konstituent'])
-c1, c2, c3 = st.columns(3)
-c1.metric("Historische Index-Austritte", f"{total_absteiger} Konstituenten")
-c2.metric("Aktuelle Index-Mitglieder", f"{aktuelle_mitglieder} (DAX 40)")
-c3.metric("Struktureller Drag-Faktor", "Nachweisbar negativ")
-st.divider()
-
-# --- 4. BEREICH 1: INDEX-KONSTITUTION (KASKADIERT & HOVER-DATEN) ---
-st.subheader("1. Index-Konstitution & Fluktuation (Substitutions-Ketten)")
-st.markdown("Visuelle Darstellung der Index-Verweildauer. Unterbrechungen im Balken markieren Phasen außerhalb des Index. Die Y-Achse ist so sortiert, dass direkte Nachfolger treppenartig untereinander erscheinen.")
-
-# Hover-Daten formatieren:
-df['Hover_Aufnahme'] = df['Aufnahme'].dt.strftime('%d.%m.%Y')
-df['Hover_Abstieg'] = df.apply(lambda row: "Heute" if row['Status'] == 'Aktueller Konstituent' else row['Abstieg'].strftime('%d.%m.%Y'), axis=1)
-
-fig_timeline = px.timeline(
-    df, 
-    x_start="Aufnahme", 
-    x_end="Abstieg", 
-    y="Unternehmen", 
-    color="Status",
-    custom_data=["Ersetzt_durch", "Status", "Hover_Aufnahme", "Hover_Abstieg"], 
-    color_discrete_map={"Aktueller Konstituent": "#1f77b4", "Ex-Konstituent": "#d62728"},
-    height=1600 
-)
-
-# Stammbaum-Reihenfolge erzwingen und Hover-Template definieren
-fig_timeline.update_yaxes(categoryorder="array", categoryarray
+    sort_order = df.groupby('Unternehmen').agg({'Primary_Slot': 'min', 'Aufnahme': 'min'}).sort_values
