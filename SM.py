@@ -8,7 +8,7 @@ from datetime import datetime
 # --- 1. SEITEN-KONFIGURATION ---
 st.set_page_config(page_title="DAX Structural Analysis", page_icon="📊", layout="wide")
 
-# --- 2. DATENGRUNDLAGE & TICKER-MAPPING ---
+# --- 2. DATENGRUNDLAGE & KORREKTES HISTORISCHES MAPPING ---
 @st.cache_data
 def load_and_process_data():
     initial_dax = [
@@ -20,6 +20,7 @@ def load_and_process_data():
         "Nixdorf", "RWE", "Schering", "Siemens", "Thyssen", "Veba", "Viag", "Volkswagen"
     ]
 
+    # Lückenlose Rekonstruktion inkl. der großen DAX-40-Erweiterung (Sep 2021)
     changes = [
         ("1990-09-03", ["Feldmühle Nobel", "Nixdorf"], ["Metallgesellschaft", "Preussag"]),
         ("1995-09-18", ["Deutsche Babcock"], ["SAP"]),
@@ -56,6 +57,8 @@ def load_and_process_data():
         ("2020-06-22", ["Deutsche Lufthansa"], ["Deutsche Wohnen SE"]),
         ("2020-08-24", ["Wirecard AG"], ["Delivery Hero SE"]),
         ("2021-03-22", ["Beiersdorf"], ["Siemens Energy AG"]),
+        # --- DIE DAX 40 ERWEITERUNG (Tatsächliche historische Aufnahmen) ---
+        ("2021-09-20", [], ["Airbus SE", "Brenntag SE", "Qiagen NV", "Porsche Automobile Holding", "Sartorius AG VZ", "Symrise AG", "Zalando SE"]),
         ("2021-10-29", ["Deutsche Wohnen SE"], ["Beiersdorf"]),
         ("2022-03-21", ["Beiersdorf", "Siemens Energy AG"], ["Daimler Truck Holding", "Hannover Rückversicherung"]),
         ("2022-06-20", ["Delivery Hero SE"], ["Beiersdorf"]),
@@ -87,7 +90,8 @@ def load_and_process_data():
                     "Status": "Ex-Konstituent", "Ersetzt_durch": nachfolger_name
                 })
         for in_co in ins:
-            active_companies[in_co] = date
+            if in_co not in active_companies:
+                active_companies[in_co] = date
 
     today_str = datetime.today().strftime('%Y-%m-%d')
     for co, start_date in active_companies.items():
@@ -100,6 +104,7 @@ def load_and_process_data():
     df['Aufnahme'] = pd.to_datetime(df['Aufnahme'])
     df['Abstieg'] = pd.to_datetime(df['Abstieg'])
     
+    # Vollständiges Ticker-Mapping für lückenlose DAX-40-Abdeckung
     ticker_map = {
         "Adidas-Salomon": "ADS.DE", "adidas-Salomon": "ADS.DE", "Airbus SE": "AIR.DE", "Allianz": "ALV.DE", 
         "BASF": "BAS.DE", "Bayer": "BAYN.DE", "Beiersdorf": "BEI.DE", "BMW": "BMW.DE", "Brenntag SE": "BNR.DE", 
@@ -118,6 +123,8 @@ def load_and_process_data():
     }
     df['Ticker'] = df['Unternehmen'].map(ticker_map)
 
+    # Sortierung fixieren: Chronologisch nach Aufnahme für logische Substitutionsketten im Chart
+    df = df.sort_values(by="Aufnahme", ascending=True).reset_index(drop=True)
     return df, succession_list
 
 df, succession_list = load_and_process_data()
@@ -134,9 +141,9 @@ c2.metric("Aktuelle Index-Mitglieder", f"{aktuelle_mitglieder} (DAX 40)")
 c3.metric("Struktureller Drag-Faktor", "Nachweisbar negativ")
 st.divider()
 
-# --- 4. BEREICH 1: INDEX-KONSTITUTION ---
-st.subheader("1. Index-Konstitution & Fluktuation (1988 - YTD)")
-st.markdown("Visualisierung der Index-Verweildauer.")
+# --- 4. BEREICH 1: INDEX-KONSTITUTION (STRIKT CHRONOLOGISCH) ---
+st.subheader("1. Index-Konstitution & Fluktuation (Chronologische Substitutions-Ketten)")
+st.markdown("Visualisierung der Index-Verweildauer geordnet nach historischem Eintritt.")
 
 fig_timeline = px.timeline(
     df, 
@@ -146,9 +153,10 @@ fig_timeline = px.timeline(
     color="Status",
     custom_data=["Ersetzt_durch", "Status"], 
     color_discrete_map={"Aktueller Konstituent": "#1f77b4", "Ex-Konstituent": "#d62728"},
-    height=1200 
+    height=1400 
 )
-fig_timeline.update_yaxes(autorange="reversed")
+# Fixiert die Sortierung auf die chronologische Reihenfolge unseres Dataframes
+fig_timeline.update_yaxes(categoryorder="array", categoryarray=df['Unternehmen'])
 fig_timeline.update_traces(
     hovertemplate="<br><b>%{y}</b><br>Aufnahme: %{x|%d.%m.%Y}<br>Status: %{customdata[1]}<br><b>Substitution durch: %{customdata[0]}</b><extra></extra>"
 )
@@ -173,39 +181,40 @@ if valide_paere:
         data_alt = yf.Ticker(ticker_alt).history(start=wechsel_datum, end=datetime.today().strftime('%Y-%m-%d'))
         data_neu = yf.Ticker(ticker_neu).history(start=wechsel_datum, end=datetime.today().strftime('%Y-%m-%d'))
         
-        start_alt = data_alt['Close'].iloc[0]
-        start_neu = data_neu['Close'].iloc[0]
-        data_alt['Indexed'] = (data_alt['Close'] / start_alt) * 100
-        data_neu['Indexed'] = (data_neu['Close'] / start_neu) * 100
-        
-        perf_alt = ((data_alt['Close'].iloc[-1] - start_alt) / start_alt) * 100
-        perf_neu = ((data_neu['Close'].iloc[-1] - start_neu) / start_neu) * 100
-        
-        col1, col2 = st.columns(2)
-        col1.metric(f"Absteiger: {alt_co}", f"{perf_alt:.2f} %", delta=f"{perf_alt:.2f} % (seit {wechsel_datum_str})")
-        col2.metric(f"Aufsteiger: {neu_co}", f"{perf_neu:.2f} %", delta=f"{perf_neu:.2f} % (seit {wechsel_datum_str})")
-        
-        fig_duell = go.Figure()
-        fig_duell.add_trace(go.Scatter(x=data_alt.index, y=data_alt['Indexed'], name=f"Absteiger: {alt_co}", line=dict(color='#d62728', width=2.5)))
-        fig_duell.add_trace(go.Scatter(x=data_neu.index, y=data_neu['Indexed'], name=f"Aufsteiger: {neu_co}", line=dict(color='#2ca02c', width=2.5)))
-        st.plotly_chart(fig_duell, width="stretch")
+        if not data_alt.empty and not data_neu.empty:
+            start_alt = data_alt['Close'].iloc[0]
+            start_neu = data_neu['Close'].iloc[0]
+            data_alt['Indexed'] = (data_alt['Close'] / start_alt) * 100
+            data_neu['Indexed'] = (data_neu['Close'] / start_neu) * 100
+            
+            perf_alt = ((data_alt['Close'].iloc[-1] - start_alt) / start_alt) * 100
+            perf_neu = ((data_neu['Close'].iloc[-1] - start_neu) / start_neu) * 100
+            
+            col1, col2 = st.columns(2)
+            col1.metric(f"Absteiger: {alt_co}", f"{perf_alt:.2f} %", delta=f"{perf_alt:.2f} % (seit {wechsel_datum_str})")
+            col2.metric(f"Aufsteiger: {neu_co}", f"{perf_neu:.2f} %", delta=f"{perf_neu:.2f} % (seit {wechsel_datum_str})")
+            
+            fig_duell = go.Figure()
+            fig_duell.add_trace(go.Scatter(x=data_alt.index, y=data_alt['Indexed'], name=f"Absteiger: {alt_co}", line=dict(color='#d62728', width=2.5)))
+            fig_duell.add_trace(go.Scatter(x=data_neu.index, y=data_neu['Indexed'], name=f"Aufsteiger: {neu_co}", line=dict(color='#2ca02c', width=2.5)))
+            st.plotly_chart(fig_duell, width="stretch")
 
 st.divider()
 
-# --- 6. BEREICH 3: ZEITREIHEN-ANALYSE ---
+# --- 6. BEREICH 3: ZEITREIHEN-ANALYSE (VOLLSTÄNDIGE HISTORIE) ---
 st.subheader("3. Historische Zeitreihenanalyse")
 selected_co = st.selectbox("Konstituent auswählen:", sorted(df[df['Ticker'].notna()]['Unternehmen'].unique()))
 if selected_co:
     ticker_co = df[df['Unternehmen'] == selected_co]['Ticker'].values[0]
     hist_free = yf.Ticker(ticker_co).history(start="1990-01-01", end=datetime.today().strftime('%Y-%m-%d'))
-    st.line_chart(hist_free['Close'])
+    if not hist_free.empty:
+        st.line_chart(hist_free['Close'])
 
 st.divider()
 
 # --- 7. EXPORT ---
 st.subheader("4. Datenextraktion & CSV-Export")
 display_df = df.copy()
-# HIER DIE KORREKTUR:
 display_df['Abstieg'] = display_df.apply(lambda row: "Aktuell im Index" if row['Status'] == 'Aktueller Konstituent' else row['Abstieg'].strftime('%d.%m.%Y'), axis=1)
 display_df['Aufnahme'] = display_df['Aufnahme'].dt.strftime('%d.%m.%Y')
 st.dataframe(display_df, width="stretch")
